@@ -1,0 +1,235 @@
+/* Copyright @ 2016, Beihang University, Beijing, China.
+The terms under which the software and associated documentation (the Software) is provided are as the following:
+The Software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the Software or the use or other dealings in the Software.
+The authors or copyright holders grants, free of charge, to any users the right to modify, copy, and redistribute the Software, both within the user's organization and externally, subject to the following restrictions:
+1. The users agree not to charge for the code itself but may charge for additions, extensions, or support.
+2. In any product based on the Software, the users agree to acknowledge the Research Group that developed the software. This acknowledgment shall appear in the product documentation.
+3. The users agree to obey all U.S. Government restrictions governing redistribution or export of the software.
+4. The users agree to reproduce any copyright notice which appears on the software on any copy or modification of such made available to others.
+Agreed to by Wang KANG, Yi Ran, and Weisheng Zhao
+1 April 2016*/
+
+//Title: Compact model of STT-assisted precessional VCMA switching MTJ
+//Version: Beta.1.0
+//Date:20 March 2016
+//Language: VerilogA
+
+/*-------------------------------------------
+Property: Beihang University
+Authors: Wang Kang, Yi Ran, Weisheng ZHAO
+In this model, it takes into account the following mechanisms
+
+1.MTJ resistance calculation based on Brinkman model and Slonczewksi model
+2.TMR dependence on the bias voltage
+3.Dynamic model based on Landau-Lifshitz-Gilber (LLG) equation 
+4.VCMA effect
+
+---------------------------------------------*/
+
+/*-------------------------------------------
+Please cite the following refereces if you use this mocel. Thank you very much.
+
+[1] W. Kang, Y. Ran, Y. Zhang, W. Lv and W. Zhao, "Modeling and Exploration of the Voltage-Controlled Magnetic Anisotropy Effect for the Next-Generation Low-Power and High-Speed MRAM Applications," in IEEE Transactions on Nanotechnology, vol. 16, no. 3, pp. 387-395, May 2017. 
+[2] W. Kang, Y. Ran, W. Lv, Y. Zhang, and W. Zhao, High-Speed and Low-Power Magnetic Non-Volatile Flip-Flop Design with Voltage-Controlled Magnetic Anisotropy Effect Assistance, IEEE Magnetics Letters, vol. 7, no. 3106205, pp. 1-4, Aug. 2016.
+[3] W. Kang, L. Zhang, J. O. Klein, Y. Zhang, D. R. Ravolosona, and W. Zhao, Reconfigurable Codesign of STT-MRAM under Process Variations in Deeply Scaled Technology, IEEE Transactions on Electron Devices, vol. 62, no. 6, pp. 1769-1777, Mar. 2015.
+[4] W. Kang, L. Chang, Y. Zhang, and W. Zhao, Voltage-Controlled MRAM for Working Memory: Perspectives and Challenges, DATE, 2016.
+
+---------------------------------------------*/
+
+`resetall
+`include "constants.vams"
+`include "disciplines.vams"
+
+/*-------------------------------------------
+Electrical Constants
+---------------------------------------------*/
+
+/*----------Elementary Charge---------------*/
+`define e 1.6e-19
+/*----------Electron Mass------------- */
+`define m 9.11e-31
+/*----------Bohr Magnetron Costant----------*/
+`define uB 9.274e-24
+/*----------Vacuum permeability----------*/
+`define u0 1.256637e-6
+/*----------Reduced Planck's Constant------------- */
+`define hbas 1.0545e-34	
+/*----------Boltzmann Constant------------- */
+`define kB 1.38e-23
+/*----------GyroMagnetic Ratio---------------*/
+`define gamma 221276
+
+module model(T1,T2,Tmz);
+
+/*-------T1~2: Actual terminals coressponding to pinned layer and free layer--------*/
+inout T1,T2;
+electrical T1,T2;
+
+/*-------Tmz: Virtual terminal for monitoring the Magnetization-------*/
+output Tmz;
+electrical Tmz;
+
+
+
+/*------------------------------------------
+MTJ Technology Parameters
+-------------------------------------------*/
+
+/*----------Gilbert Damping Coefficient---------------*/
+parameter real  alpha=0.05;
+/*----------Electron Polarization Percentage---------------*/
+parameter real  P=0.58;											
+/*----------The interfacial anisotropy energy at V=0 in J/m2---------------*/
+parameter real  Ki=0.32e-3;	
+/*----------Saturation Field in the Free Layer in A/m---------------*/
+parameter real  Ms=0.625e6;
+/*----------The Energy Barrier Height for MgO in electron-volt---------------*/
+parameter real  PhiBas=0.4;
+/*----------Voltage bias when the TMR(real) is 1/2TMR(0) in Volt---------------*/
+parameter real  Vh=0.5;
+
+/*------------------------------------------
+MTJ Device Parameters
+-------------------------------------------*/
+/*----------Height of the Free Layer  in meter---------------*/
+parameter real  tf=1.1e-9 from[0.5e-9:3.0e-9];
+/*----------Length in meter---------------*/
+parameter real  L=50e-9;
+/*----------Width in meter---------------*/
+parameter real  W=50e-9;
+/*----------Thickness the Oxide Barrier in meter---------------*/
+parameter real  tox=1.4e-9 from[8e-10:20e-10];
+/*----------TMR(0) with Zero Volt Bias Voltage ---------------*/
+parameter real  TMR=1;
+/*----------VCMA coefficient---------------*/
+parameter real  ksi=60e-15;
+/*----------Thermal stability factor---------------*/
+parameter real  delta=40 from[1.0:100.0];
+
+
+
+/*------------------------------------------
+State Parameters of MTJ
+-------------------------------------------*/
+/*----------Initial state of the MTJ, 0 = parallele, 1 = anti-parallele----*/
+parameter integer	PAP=0 from[0:1];
+/*----------Room temperature in Kelvin----------------*/
+parameter real 		T=300;
+/*----------Resistance area product of MTJ in ohm-m2----------------*/
+parameter real 		RA=196.35e-12 from[0e-12:600e-12];
+/*----------Thermal noise coefficient----------------*/
+parameter real 		psi=0 from[0:1];
+/*----------External field x component in A/m----------------*/
+parameter real 		Hx=31830 from[-1e7:1e7];
+/*----------External field y component in A/m----------------*/
+parameter real 		Hy=0 from[-1e5:1e5];
+/*----------External field z component in A/m----------------*/
+parameter real 		Hz=0 from[-1e5:1e5];
+/*----------X axis component of demagetization factor----------------*/
+parameter real 		Nx=0.0168 from[-1.0000:1.0000];
+/*----------Y axis component of demagetization factor----------------*/
+parameter real 		Ny=0.0168 from[-1.0000:1.0000];
+/*----------Z axis component of demagetization factor----------------*/
+parameter real 		Nz=0.9664 from[-1.0000:1.0000];
+			
+
+/*----------Simulation time step in second-------------*/
+parameter real sim_step = 1e-12;
+
+//Variables
+real FA;			//Fitting factor used in Brinkman model
+real gammap;			//Reduced gyromagnetic ratio
+real surface;			//MTJ surface area
+real V12;			//Voltage applied for VCMA
+real Rp;  			//MTJ Resistance when the relative magnetization is parallel
+real R_MTJ;			//Real resistance of MTJ
+real theta,phi;  		//Angle of magnetization
+real delta_phi,delta_theta;	//Change of angle
+real delta_aver;		//Root square average value of theta deviaion
+real V_MTJ;  		     	//Voltage across the MTJ from top layer to bottom layer
+real rho;			//STT factor used in LLG equation
+real J_STT;			//Current density for STT
+real mz;			//Magnetization in z direction
+real t_previous;		//Recording the simulation time
+real v;				//Freelayer volume of the MTJ
+real Hth;			//Thermal noise factor;
+real Hk;			//Effective magnetic anisotropy;
+real Ax;			//X axis component of the effective magnetic field
+real Ay;			//Y axis component of the effective magnetic field
+real Az;			//Z axis component of the effective magnetic field
+			
+
+
+analog begin
+
+/*--------------------------initial conditions------------------------*/
+@(initial_step)begin
+	surface=`M_PI*W*L/4.0;				//Area calculation for circular and elliptic MTJ
+	
+	//STT factor used in LLG equation
+	gammap = `gamma/(1+alpha*alpha);										
+	rho = `gamma*`hbas*P/(2*`u0*`e*tf*Ms);			//STT factor
+
+	//MTJ resistance under zero bias
+	FA = 11.2727;
+	Rp = (tox/(FA*sqrt(PhiBas)*surface))*exp(1.025*sqrt(PhiBas)*tox);	
+
+	//Thermal noise factor;
+	v = tf*`M_PI*L*W/4;	
+	Hth = sqrt(2*`kB*T*alpha/(`u0*Ms*gammap*sim_step*v));
+
+	//Initial angle and mz
+	delta_aver = sqrt(1/(2*delta));
+	phi = 0;
+	if (PAP==0) begin
+		theta = delta_aver;
+		end
+	else begin
+		theta = `M_PI-delta_aver;
+	end
+	mz = cos(theta);
+	t_previous = $abstime;
+
+end
+
+/*--------------------------Simulation------------------------*/
+//Landau–Lifshitz–Gilbert equation including Spin transfer torque and VCMA effect
+if (analysis("tran")) begin
+	if ((V(T1)-V(T2))>1.0) begin
+		V12 = V(T1)-V(T2);
+		J_STT = 0;
+		end
+	else begin
+		V12 = 0;
+		J_STT = (V(T2)-V(T1))/(R_MTJ*surface);					//Competition of VCMA and STT facts
+	end
+	Hk = 2*Ki/(tf*`u0*Ms)-2*ksi*V12/(`u0*Ms*tox*tf); 	//The effective anisotropy field with VCMA effect
+	Ax = Hx-Nx*Ms*sin(theta)*cos(phi);			
+	Ay = Hy-Ny*Ms*sin(theta)*sin(phi);			
+	Az = Hz-Nz*Ms*cos(theta)+Hk*cos(theta);			
+	delta_phi = ($abstime-t_previous)*(gammap*(Ax*(-cos(theta)*cos(phi)-alpha*sin(phi))+Ay*(-cos(theta)*sin(phi)+alpha*cos(phi))+Az*sin(theta))/sin(theta)-alpha*rho*J_STT/(1+alpha*alpha));
+	delta_theta = ($abstime-t_previous)*(gammap*(Ax*(alpha*cos(theta)*cos(phi)-sin(phi))+Ay*(alpha*cos(theta)*sin(phi)+cos(phi))-Az*alpha*sin(theta))-rho*J_STT*sin(theta)/(1+alpha*alpha));
+									//Differential equations about time-dependent theta and phi
+	phi = phi + delta_phi;
+	theta = theta + delta_theta;
+
+//Output mz 
+mz = cos(theta);
+V(Tmz)<+mz;
+
+
+//Calculation of MTJ resistance 
+R_MTJ = Rp*(1+(V(T1)-V(T2))*(V(T1)-V(T2))/(Vh*Vh)+TMR)/(1+(V(T1)-V(T2))*(V(T1)-V(T2))/(Vh*Vh)+0.5*(1+mz)*TMR);
+
+//Calculation of STT current and current density
+I(T1,T2)<+(V(T1)-V(T2))/R_MTJ;
+	t_previous = $abstime;
+	$bound_step(sim_step);
+
+
+end
+
+end
+
+endmodule
+
